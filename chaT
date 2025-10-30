@@ -1,0 +1,339 @@
+Отлично — понял задачу: у тебя есть локально скачанные модели, сеть изолирована, и нужно имитировать Hugging Face Hub / endpoints, чтобы gpustack (или любой софт, который ожидает huggingface.co/.../resolve/...) мог скачивать и «загружать» эти модели из внутреннего хранилища. Ниже даю готовый Go backend (в одном файле) — минималистичный, надёжный «mirror / hub» — вместе с инструкциями по структуре каталогов, настройке токена и Dockerfile. Сервер поддерживает:
+
+endpoint GET /{repo_id}/resolve/{revision}/{path...} — точно как HF (используется gpustack/huggingface_hub для загрузки файлов). 
+Hugging Face
++1
+
+GET /api/models/{repo_id} — возвращает простую metadata (список файлов / siblings), полезно если gpustack делает API-запросы к хабу.
+
+GET /models — список доступных репозиториев.
+
+Bearer-аутентификацию (опционально — один токен для всей сети).
+
+корректную отдачу больших файлов с поддержкой Range/partial (важно для больших весов).
+
+простой способ зарегистрировать новые модели (положил файлы в каталог).
+
+Важно: Hugging Face-клиенты/библиотеки умеют указывать альтернативный endpoint / mirror (через HF_ENDPOINT / настройки), то есть gpustack можно настроить так, чтобы он загружал модели с твоего mirror-а. Если нужно — могу дать пример настройки gpustack / huggingface_hub для использования этого endpoint. 
+GitHub
+
+Файлы и структура
+
+Предположим, корневой каталог REPO_ROOT (по умолчанию ./repos). Внутри:
+
+repos/
+  my-org/my-model/
+    main/
+      config.json
+      tokenizer.json
+      pytorch_model.bin
+    v1.0/
+      ...
+  local-bert/
+    main/
+      config.json
+      pytorch_model.bin
+
+
+То есть URL GET /my-org/my-model/resolve/main/pytorch_model.bin будет искать файл в repos/my-org/my-model/main/pytorch_model.bin и отдавать его.
+
+
+// main.go — simple HuggingFace-style mirror for local model files.
+// Serves: GET /{repo}/resolve/{revision}/{filepath...}
+//         GET /api/models/{repo}
+//         GET /models
+//
+// Build: go build -o hf-mirror main.go
+// Run:   ./hf-mirror -root ./repos -listen :8080 -token "secret" 
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"mime"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+type Config struct {
+	RootDir string
+	Listen  string
+	Token   string
+}
+
+func main() {
+	var cfg Config
+	flag.StringVar(&cfg.RootDir, "root", "./repos", "root directory with model repos")
+	flag.StringVar(&cfg.Listen, "listen", ":8080", "listen address")
+	flag.StringVar(&cfg.Token, "token", "", "optional bearer token for auth")
+	flag.Parse()
+
+	// ensure root exists
+	if _, err := os.Stat(cfg.RootDir); os.IsNotExist(err) {
+		log.Fatalf("root dir does not exist: %s", cfg.RootDir)
+	}
+
+	http.HandleFunc("/", makeHandler(&cfg))
+	http.HandleFunc("/api/models/", makeAPIHandler(&cfg))
+	http.HandleFunc("/models", makeListHandler(&cfg))
+
+	log.Printf("HF-mirror listening %s, root=%s\n", cfg.Listen, cfg.RootDir)
+	log.Fatal(http.ListenAndServe(cfg.Listen, nil))
+}
+
+// top-level dispatcher
+func makeHandler(cfg *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// auth (optional)
+		if cfg.Token != "" {
+			auth := r.Header.Get("Authorization")
+			if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != cfg.Token {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+
+		// Expect paths like: /<repo_id>/resolve/<revision>/<path...>
+		// Remove leading slash
+		p := strings.TrimPrefix(r.URL.Path, "/")
+		parts := strings.SplitN(p, "/", 4)
+		if len(parts) < 3 {
+			http.NotFound(w, r)
+			return
+		}
+		// parts[0] = repo or owner, but repo_id can include slashes like owner/repo
+		// We'll try to detect "resolve" token.
+		// Find index of "resolve" in path segments.
+		seg := strings.Split(p, "/")
+		idx := -1
+		for i, s := range seg {
+			if s == "resolve" {
+				idx = i
+				break
+			}
+		}
+		if idx == -1 || idx == 0 || idx+1 >= len(seg) {
+			http.NotFound(w, r)
+			return
+		}
+		repoID := strings.Join(seg[:idx], "/")
+		revision := seg[idx+1]
+		filePath := strings.Join(seg[idx+2:], "/")
+		serveResolve(cfg, w, r, repoID, revision, filePath)
+	}
+}
+
+// Serve file for resolve endpoint
+func serveResolve(cfg *Config, w http.ResponseWriter, r *http.Request, repo, rev, filePath string) {
+	// Try candidate locations:
+	// 1) {root}/{repo}/{rev}/{filePath}
+	// 2) {root}/{repo}/snapshots/{rev}/{filePath}
+	// 3) {root}/{repo}/{filePath} (if rev is empty or "main")
+	candidates := []string{
+		filepath.Join(cfg.RootDir, repo, rev, filePath),
+		filepath.Join(cfg.RootDir, repo, "snapshots", rev, filePath),
+		filepath.Join(cfg.RootDir, repo, filePath),
+	}
+
+	var found string
+	for _, c := range candidates {
+		if finfo, err := os.Stat(c); err == nil && !finfo.IsDir() {
+			found = c
+			break
+		}
+	}
+	if found == "" {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	// Open file and serve with support for Range
+	f, err := os.Open(found)
+	if err != nil {
+		http.Error(w, "unable to open file", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	stat, _ := f.Stat()
+	modTime := stat.ModTime()
+	// set Content-Type based on extension (fallback to octet-stream)
+	if ctype := mime.TypeByExtension(filepath.Ext(found)); ctype != "" {
+		w.Header().Set("Content-Type", ctype)
+	} else {
+		// read a small chunk to sniff
+		buf := make([]byte, 512)
+		n, _ := f.Read(buf)
+		ctype := http.DetectContentType(buf[:n])
+		w.Header().Set("Content-Type", ctype)
+		// reset file offset
+		f.Seek(0, io.SeekStart)
+	}
+	// suggest filename for client
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(found)))
+	http.ServeContent(w, r, filepath.Base(found), modTime, f)
+}
+
+// API endpoints
+
+// GET /api/models/<repo>  -> metadata JSON
+func makeAPIHandler(cfg *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// auth (optional)
+		if cfg.Token != "" {
+			auth := r.Header.Get("Authorization")
+			if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != cfg.Token {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		p := strings.TrimPrefix(r.URL.Path, "/api/models/")
+		if p == "" {
+			http.Error(w, "missing repo id", http.StatusBadRequest)
+			return
+		}
+		repo := p
+		// Look into cfg.RootDir/repo and gather files
+		repoPath := filepath.Join(cfg.RootDir, repo)
+		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+			http.Error(w, "repo not found", http.StatusNotFound)
+			return
+		}
+		// Walk repo dir and list files
+		type FileInfo struct {
+			Path string `json:"rfilename"`
+			Size int64  `json:"size"`
+			Sha  string `json:"sha256,omitempty"`
+		}
+		var siblings []FileInfo
+		err := filepath.Walk(repoPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return nil
+			}
+			rel, _ := filepath.Rel(repoPath, path)
+			fi := FileInfo{Path: rel, Size: info.Size()}
+			// compute sha if file small (<50MB)
+			if info.Size() > 0 && info.Size() <= 50*1024*1024 {
+				s, _ := computeSHA(path)
+				fi.Sha = s
+			}
+			siblings = append(siblings, fi)
+			return nil
+		})
+		if err != nil {
+			http.Error(w, "failed to scan repo", http.StatusInternalServerError)
+			return
+		}
+		out := map[string]interface{}{
+			"id":       repo,
+			"siblings": siblings,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
+	}
+}
+
+func makeListHandler(cfg *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// auth (optional)
+		if cfg.Token != "" {
+			auth := r.Header.Get("Authorization")
+			if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != cfg.Token {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		entries := []string{}
+		filepath.Walk(cfg.RootDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				// skip root itself
+				if path == cfg.RootDir {
+					return nil
+				}
+				rel, _ := filepath.Rel(cfg.RootDir, path)
+				// add top-level repo (stop recursion into subdirs here)
+				if strings.Count(rel, string(os.PathSeparator)) == 0 {
+					entries = append(entries, rel)
+				}
+			}
+			return nil
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"models": entries})
+	}
+}
+
+func computeSHA(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+Dockerfile (опционально)
+dockerfile
+Копировать код
+FROM golang:1.21-alpine AS build
+WORKDIR /src
+COPY . .
+RUN go build -o /bin/hf-mirror main.go
+
+FROM alpine:3.18
+RUN apk add --no-cache ca-certificates
+COPY --from=build /bin/hf-mirror /bin/hf-mirror
+WORKDIR /data
+VOLUME ["/data/repos"]
+EXPOSE 8080
+ENTRYPOINT ["/bin/hf-mirror", "-root", "/data/repos", "-listen", ":8080"]
+Запуск с томом:
+
+bash
+Копировать код
+docker build -t hf-mirror .
+docker run -v /path/to/repos:/data/repos -p 8080:8080 hf-mirror -token "my-secret"
+Как подготовить локальные модели
+Положи структуру repos/<owner>/<model>/<revision>/* — например repos/my-model/main/pytorch_model.bin, tokenizer.json, config.json.
+
+Убедись, что файлы — реальные бинарные веса (если скачивал через git lfs — надо иметь реальные файлы, а не pointer-файлы). Для больших моделей LFS обязателен при скачивании; mirror должен хранить реальные веса. 
+Hugging Face
+
+Как настроить gpustack / клиента
+Если gpustack запрашивает напрямую https://huggingface.co/<repo>/resolve/<rev>/file, нужно настроить gpustack так, чтобы он вместо https://huggingface.co использовал твой внутренний адрес (например http://hf-mirror.internal:8080). Многие библиотеки и провайдеры позволяют переопределить endpoint (через HF_ENDPOINT / конфиг). 
+GitHub
+
+Если gpustack использует API (/api/models/...) — наш /api/models/{repo} отдает базовую metadata, этого может быть достаточно.
+
+Проверь, что gpustack использует тот же путь /resolve/{revision}/{filename} — это стандартное поведение при загрузке файлов из Hub. 
+Hugging Face
+
+Ограничения и опциональные улучшения (которые я могу добавить)
+Git LFS compatibility — если у тебя LFS-pointer файлы, mirror должен хранить реальные объёмы; можно добавить поддержку git-lfs-style endpoints, но проще — распаковать реальные файлы в структуру выше.
+
+ACL / per-repo tokens — сейчас один токен для всего сервера; можно добавить per-repo access control.
+
+HTTPS + TLS, mTLS — для изолированной сети часто нужен TLS; можно добавить автоматическое TLS (letsencrypt недоступен в изолированной сети — нужно загрузить certs).
+
+Cache/ETag/sha support — можно включить выдачу ETag/sha, чтобы gpustack корректно кешировал.
+
+Web UI — простая страничка со списком репозиториев и файлами.
+
+Интеграция с gpustack agent API — если у gpustack есть API для «зарегистрировать модель», можно расширить backend, чтобы автоматически вызывать gpustack с указанием локального пути (надо примеры API gpustack).
