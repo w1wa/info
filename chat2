@@ -1,0 +1,168 @@
+Отличный вопрос — да, можно построить локальный backend, который работает через официальную библиотеку huggingface_hub, при этом:
+
+Использует реальный API и классы Hugging Face,
+
+Но загружает и отдает модели локально,
+
+А для gpustack выглядит так же, как настоящий huggingface.co сервер.
+
+🎯 Что мы сделаем
+
+Используем библиотеку huggingface_hub для:
+
+Чтения структуры моделей (HfApi, ModelInfo),
+
+Проверки прав (эмулируем через whoami),
+
+Раздачи файлов через hf_hub_download, но с локальным хранилищем.
+
+Организуем локальное зеркало (HF_HOME) для хранения скачанных моделей.
+
+Построим FastAPI-сервер, который использует эти API для ответов.
+
+🧱 Пример backend'а на основе huggingface_hub
+from fastapi import FastAPI, Response
+from fastapi.responses import FileResponse, JSONResponse
+from huggingface_hub import HfApi, HfFolder, hf_hub_download, ModelCard
+import os
+import json
+
+app = FastAPI(title="Local Hugging Face Server (via huggingface_hub)")
+
+# Путь к локальному зеркалу (где уже лежат скачанные модели)
+LOCAL_HF_DIR = os.environ.get("HF_HOME", "./hf_cache")
+
+# Инициализация API (не требует интернета, если всё локально)
+api = HfApi(endpoint="https://huggingface.co")  # endpoint нужен для структуры, но запросы будем эмулировать
+
+
+@app.get("/api/models")
+async def list_models():
+    """
+    Отображает все локальные модели, которые уже есть в HF_HOME.
+    """
+    models_root = os.path.join(LOCAL_HF_DIR, "models--")
+    models = []
+
+    if not os.path.exists(models_root):
+        return JSONResponse({"models": []})
+
+    for d in os.listdir(models_root):
+        model_dir = os.path.join(models_root, d)
+        if not os.path.isdir(model_dir):
+            continue
+        name = d.replace("models--", "").replace("--", "/")
+        size = 0
+        file_count = 0
+        for root, _, files in os.walk(model_dir):
+            for f in files:
+                fp = os.path.join(root, f)
+                size += os.path.getsize(fp)
+                file_count += 1
+        models.append({
+            "model_id": name,
+            "file_count": file_count,
+            "total_size_mb": round(size / (1024 * 1024), 2)
+        })
+
+    return JSONResponse({"models": models})
+
+
+@app.get("/{user}/{model_name}/check-auth")
+async def check_auth(user: str, model_name: str):
+    """
+    Эмуляция аутентификации через huggingface_hub (всегда True)
+    """
+    token = HfFolder.get_token()
+    return JSONResponse({
+        "ok": True,
+        "authenticated": bool(token),
+        "user": user,
+        "model": model_name,
+        "token_present": bool(token)
+    })
+
+
+@app.get("/{user}/{model_name}/resolve/{revision}/{file_path:path}")
+async def resolve_file(user: str, model_name: str, revision: str, file_path: str):
+    """
+    Эмулируем загрузку файла из локального HF_HOME.
+    """
+    repo_id = f"{user}/{model_name}"
+    try:
+        # Пытаемся найти файл в локальном кеше
+        local_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=file_path,
+            revision=revision,
+            local_files_only=True,  # Не тянем из сети
+            cache_dir=LOCAL_HF_DIR
+        )
+        return FileResponse(local_path)
+    except Exception as e:
+        return Response(status_code=404, content=f"File not found locally: {file_path}\n{str(e)}")
+
+
+@app.get("/{user}/{model_name}")
+async def model_info(user: str, model_name: str):
+    """
+    Получаем метаданные модели из локального кеша (через huggingface_hub)
+    """
+    repo_id = f"{user}/{model_name}"
+    model_dir = os.path.join(LOCAL_HF_DIR, f"models--{user}--{model_name}")
+
+    if not os.path.exists(model_dir):
+        return Response(status_code=404, content="Model not found in local cache")
+
+    files = []
+    for root, _, filenames in os.walk(model_dir):
+        for f in filenames:
+            rel_path = os.path.relpath(os.path.join(root, f), model_dir)
+            files.append({
+                "rfilename": rel_path,
+                "lfs": {"size": os.path.getsize(os.path.join(root, f))}
+            })
+
+    return JSONResponse({
+        "modelId": repo_id,
+        "sha": "local",
+        "siblings": files,
+    })
+
+📦 requirements.txt
+fastapi
+uvicorn
+huggingface_hub>=0.23.0
+
+🚀 Как использовать
+
+Установи зависимости:
+
+pip install -r requirements.txt
+
+
+Укажи путь к локальному кэшу Hugging Face (где лежат модели):
+
+export HF_HOME=/data/hf_cache
+
+
+Запусти сервер:
+
+uvicorn app:app --host 0.0.0.0 --port 8000
+
+
+Настрой gpustack:
+
+export HF_ENDPOINT=http://192.168.1.100:8000
+
+🧩 Как заполнить локальный кэш без интернета
+
+Можно заранее скачать нужные модели с интернет-машины:
+
+from huggingface_hub import hf_hub_download
+
+hf_hub_download("TheBloke/Llama-2-7B-GGUF", filename="config.json")
+hf_hub_download("TheBloke/Llama-2-7B-GGUF", filename="model.safetensors")
+
+
+Потом скопировать директорию ~/.cache/huggingface/hub (или HF_HOME) на офлайн-сервер в ./hf_cache.
