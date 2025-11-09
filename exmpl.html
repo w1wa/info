@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление параметрами системы</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), 
+                        url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=2072&q=80');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            font-size: 2.5rem;
+        }
+        
+        .loading-screen {
+            text-align: center;
+            color: white;
+            padding: 50px;
+            font-size: 1.2rem;
+        }
+        
+        .spinner-large {
+            width: 60px;
+            height: 60px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-top: 5px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        .blocks-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        
+        .block {
+            background-color: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            position: relative;
+            border: 2px solid transparent;
+            backdrop-filter: blur(5px);
+        }
+        
+        .block:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.4);
+        }
+        
+        /* Стили для блоков в разных состояниях */
+        .block.disabled {
+            background: linear-gradient(135deg, rgba(255, 245, 245, 0.95) 0%, rgba(254, 215, 215, 0.95) 100%);
+            border-color: #fc8181;
+        }
+        
+        .block.enabled {
+            background: linear-gradient(135deg, rgba(240, 255, 244, 0.95) 0%, rgba(198, 246, 213, 0.95) 100%);
+            border-color: #68d391;
+        }
+        
+        .block.pending {
+            background: linear-gradient(135deg, rgba(255, 250, 240, 0.95) 0%, rgba(254, 235, 200, 0.95) 100%);
+            border-color: #f6ad55;
+        }
+        
+        .block-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        }
+        
+        .block-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .switch-container {
+            display: flex;
+            align-items: center;
+        }
+        
+        .switch-label {
+            margin-right: 10px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .switch-label.off {
+            color: #e53e3e;
+        }
+        
+        .switch-label.on {
+            color: #38a169;
+        }
+        
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 30px;
+        }
+        
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #e53e3e;
+            transition: .4s;
+            border-radius: 34px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+        
+        input:checked + .slider {
+            background-color: #38a169;
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(30px);
+        }
+        
+        input:disabled + .slider {
+            background-color: #a0aec0;
+            cursor: not-allowed;
+        }
+        
+        input:disabled + .slider:before {
+            background-color: #edf2f7;
+        }
+        
+        .dropdown-container {
+            margin-bottom: 10px;
+        }
+        
+        select {
+            width: 100%;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        
+        select:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+            background-color: white;
+        }
+        
+        .hint {
+            font-size: 12px;
+            color: #718096;
+            font-style: italic;
+            margin-top: 5px;
+        }
+        
+        .log-container {
+            background-color: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(5px);
+        }
+        
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .log-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .log-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .filter-select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background-color: white;
+            font-size: 14px;
+            color: #333;
+            cursor: pointer;
+        }
+        
+        .expand-btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .expand-btn:hover {
+            background-color: #2980b9;
+        }
+        
+        .log-content {
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #eaeaea;
+            border-radius: 8px;
+            padding: 15px;
+            background-color: rgba(249, 249, 249, 0.9);
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .log-content.expanded {
+            height: 400px;
+        }
+        
+        .log-entry {
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            align-items: flex-start;
+        }
+        
+        .log-entry:last-child {
+            margin-bottom: 0;
+            border-bottom: none;
+        }
+        
+        .timestamp {
+            color: #7f8c8d;
+            font-size: 12px;
+            min-width: 80px;
+            margin-right: 10px;
+        }
+        
+        .log-message {
+            color: #2c3e50;
+            flex: 1;
+        }
+        
+        .enabled {
+            color: #27ae60;
+            font-weight: 600;
+        }
+        
+        .disabled {
+            color: #e74c3c;
+            font-weight: 600;
+        }
+        
+        .server-status {
+            display: inline-block;
+            margin-left: 10px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .status-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+        
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            display: none;
+        }
+        
+        .loading-overlay.active {
+            display: flex;
+        }
+        
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .status-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 0 3px rgba(0, 0, 0, 0.3);
+        }
+        
+        .status-indicator.enabled {
+            background-color: #38a169;
+        }
+        
+        .status-indicator.disabled {
+            background-color: #e53e3e;
+        }
+        
+        .status-indicator.pending {
+            background-color: #f6ad55;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .background-credit {
+            text-align: center;
+            color: white;
+            margin-top: 20px;
+            font-size: 12px;
+            opacity: 0.7;
+        }
+        
+        .background-credit a {
+            color: white;
+            text-decoration: none;
+        }
+        
+        .background-credit a:hover {
+            text-decoration: underline;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .empty-log {
+            text-align: center;
+            color: #7f8c8d;
+            font-style: italic;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="loadingScreen" class="loading-screen">
+            <div class="spinner-large"></div>
+            <p>Загрузка текущих состояний системы...</p>
+        </div>
+        
+        <div id="mainContent" class="hidden">
+            <h1>Управление параметрами системы</h1>
+            
+            <div class="blocks-container">
+                <!-- Блок 1 -->
+                <div class="block disabled" id="block1">
+                    <div class="status-indicator disabled"></div>
+                    <div class="loading-overlay" id="loading1">
+                        <div class="spinner"></div>
+                    </div>
+                    <div class="block-header">
+                        <div class="block-title">Система безопасности</div>
+                        <div class="switch-container">
+                            <span class="switch-label off">Выкл</span>
+                            <label class="switch">
+                                <input type="checkbox" id="switch1" disabled>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="switch-label on">Вкл</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-container">
+                        <select id="dropdown1">
+                            <option value="">Выберите параметр</option>
+                            <option value="Режим охраны">Режим охраны</option>
+                            <option value="Датчики движения">Датчики движения</option>
+                            <option value="Видеонаблюдение">Видеонаблюдение</option>
+                        </select>
+                        <div class="hint">Перед переключением необходимо выбрать параметр</div>
+                    </div>
+                </div>
+                
+                <!-- Блок 2 -->
+                <div class="block disabled" id="block2">
+                    <div class="status-indicator disabled"></div>
+                    <div class="loading-overlay" id="loading2">
+                        <div class="spinner"></div>
+                    </div>
+                    <div class="block-header">
+                        <div class="block-title">Система освещения</div>
+                        <div class="switch-container">
+                            <span class="switch-label off">Выкл</span>
+                            <label class="switch">
+                                <input type="checkbox" id="switch2" disabled>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="switch-label on">Вкл</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-container">
+                        <select id="dropdown2">
+                            <option value="">Выберите параметр</option>
+                            <option value="Основное освещение">Основное освещение</option>
+                            <option value="Декоративная подсветка">Декоративная подсветка</option>
+                            <option value="Ночное освещение">Ночное освещение</option>
+                        </select>
+                        <div class="hint">Перед переключением необходимо выбрать параметр</div>
+                    </div>
+                </div>
+                
+                <!-- Блок 3 -->
+                <div class="block disabled" id="block3">
+                    <div class="status-indicator disabled"></div>
+                    <div class="loading-overlay" id="loading3">
+                        <div class="spinner"></div>
+                    </div>
+                    <div class="block-header">
+                        <div class="block-title">Климат-контроль</div>
+                        <div class="switch-container">
+                            <span class="switch-label off">Выкл</span>
+                            <label class="switch">
+                                <input type="checkbox" id="switch3" disabled>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="switch-label on">Вкл</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-container">
+                        <select id="dropdown3">
+                            <option value="">Выберите параметр</option>
+                            <option value="Отопление">Отопление</option>
+                            <option value="Кондиционирование">Кондиционирование</option>
+                            <option value="Увлажнитель">Увлажнитель</option>
+                        </select>
+                        <div class="hint">Перед переключением необходимо выбрать параметр</div>
+                    </div>
+                </div>
+                
+                <!-- Блок 4 -->
+                <div class="block disabled" id="block4">
+                    <div class="status-indicator disabled"></div>
+                    <div class="loading-overlay" id="loading4">
+                        <div class="spinner"></div>
+                    </div>
+                    <div class="block-header">
+                        <div class="block-title">Мультимедиа</div>
+                        <div class="switch-container">
+                            <span class="switch-label off">Выкл</span>
+                            <label class="switch">
+                                <input type="checkbox" id="switch4" disabled>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="switch-label on">Вкл</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-container">
+                        <select id="dropdown4">
+                            <option value="">Выберите параметр</option>
+                            <option value="Аудиосистема">Аудиосистема</option>
+                            <option value="Телевизор">Телевизор</option>
+                            <option value="Игровая консоль">Игровая консоль</option>
+                        </select>
+                        <div class="hint">Перед переключением необходимо выбрать параметр</div>
+                    </div>
+                </div>
+                
+                <!-- Блок 5 -->
+                <div class="block disabled" id="block5">
+                    <div class="status-indicator disabled"></div>
+                    <div class="loading-overlay" id="loading5">
+                        <div class="spinner"></div>
+                    </div>
+                    <div class="block-header">
+                        <div class="block-title">Бытовая техника</div>
+                        <div class="switch-container">
+                            <span class="switch-label off">Выкл</span>
+                            <label class="switch">
+                                <input type="checkbox" id="switch5" disabled>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="switch-label on">Вкл</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-container">
+                        <select id="dropdown5">
+                            <option value="">Выберите параметр</option>
+                            <option value="Кофемашина">Кофемашина</option>
+                            <option value="Стиральная машина">Стиральная машина</option>
+                            <option value="Посудомойка">Посудомойка</option>
+                        </select>
+                        <div class="hint">Перед переключением необходимо выбрать параметр</div>
+                    </div>
+                </div>
+                
+                <!-- Блок 6 -->
+                <div class="block disabled" id="block6">
+                    <div class="status-indicator disabled"></div>
+                    <div class="loading-overlay" id="loading6">
+                        <div class="spinner"></div>
+                    </div>
+                    <div class="block-header">
+                        <div class="block-title">Система полива</div>
+                        <div class="switch-container">
+                            <span class="switch-label off">Выкл</span>
+                            <label class="switch">
+                                <input type="checkbox" id="switch6" disabled>
+                                <span class="slider"></span>
+                            </label>
+                            <span class="switch-label on">Вкл</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-container">
+                        <select id="dropdown6">
+                            <option value="">Выберите параметр</option>
+                            <option value="Газон">Газон</option>
+                            <option value="Цветники">Цветники</option>
+                            <option value="Огород">Огород</option>
+                        </select>
+                        <div class="hint">Перед переключением необходимо выбрать параметр</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="log-container">
+                <div class="log-header">
+                    <div class="log-title">Журнал действий</div>
+                    <div class="log-controls">
+                        <select class="filter-select" id="logFilter">
+                            <option value="all">Все системы</option>
+                            <option value="Система безопасности">Система безопасности</option>
+                            <option value="Система освещения">Система освещения</option>
+                            <option value="Климат-контроль">Климат-контроль</option>
+                            <option value="Мультимедиа">Мультимедиа</option>
+                            <option value="Бытовая техника">Бытовая техника</option>
+                            <option value="Система полива">Система полива</option>
+                        </select>
+                        <button class="expand-btn" id="expandLog">Расширить</button>
+                    </div>
+                </div>
+                <div class="log-content" id="logContent">
+                    <div class="empty-log">Загрузка логов...</div>
+                </div>
+            </div>
+            
+            <div class="background-credit">
+                Фото: <a href="https://unsplash.com/photos/a-computer-screen-with-a-blue-background-04X1Yp9hNH8" target="_blank">Unsplash</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Мок-данные для демонстрации
+        const mockStatesApiResponse = {
+            success: true,
+            data: [
+                {
+                    id: 1,
+                    blockName: "Система безопасности",
+                    parameter: "Режим охраны",
+                    status: true,
+                    lastUpdated: "2023-10-15T10:30:00.000Z"
+                },
+                {
+                    id: 2,
+                    blockName: "Система освещения", 
+                    parameter: "Ночное освещение",
+                    status: false,
+                    lastUpdated: "2023-10-15T09:15:00.000Z"
+                },
+                {
+                    id: 3,
+                    blockName: "Климат-контроль",
+                    parameter: "Кондиционирование", 
+                    status: true,
+                    lastUpdated: "2023-10-15T11:45:00.000Z"
+                },
+                {
+                    id: 4,
+                    blockName: "Мультимедиа",
+                    parameter: "Аудиосистема",
+                    status: false,
+                    lastUpdated: "2023-10-14T20:20:00.000Z"
+                },
+                {
+                    id: 5,
+                    blockName: "Бытовая техника",
+                    parameter: "",
+                    status: false,
+                    lastUpdated: "2023-10-14T18:00:00.000Z"
+                },
+                {
+                    id: 6,
+                    blockName: "Система полива",
+                    parameter: "Газон",
+                    status: true,
+                    lastUpdated: "2023-10-15T07:00:00.000Z"
+                }
+            ]
+        };
+
+        // Мок-данные для логов
+        const mockLogsApiResponse = {
+            success: true,
+            data: [
+                {
+                    id: 1,
+                    blockName: "Система безопасности",
+                    parameter: "Режим охраны",
+                    status: true,
+                    timestamp: "2023-10-15T10:30:00.000Z",
+                    serverStatus: "success"
+                },
+                {
+                    id: 2,
+                    blockName: "Система освещения",
+                    parameter: "Ночное освещение", 
+                    status: false,
+                    timestamp: "2023-10-15T09:15:00.000Z",
+                    serverStatus: "success"
+                },
+                {
+                    id: 3,
+                    blockName: "Климат-контроль",
+                    parameter: "Кондиционирование",
+                    status: true,
+                    timestamp: "2023-10-15T11:45:00.000Z",
+                    serverStatus: "success"
+                }
+            ]
+        };
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const logContent = document.getElementById('logContent');
+            const expandBtn = document.getElementById('expandLog');
+            const loadingScreen = document.getElementById('loadingScreen');
+            const mainContent = document.getElementById('mainContent');
+            const logFilter = document.getElementById('logFilter');
+            
+            let allLogs = [];
+
+            // Функция для загрузки текущих состояний с сервера
+            async function loadCurrentStates() {
+                try {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    const data = mockStatesApiResponse;
+                    
+                    if (data.success) {
+                        applyCurrentStates(data.data);
+                    } else {
+                        throw new Error('Ошибка загрузки данных с сервера');
+                    }
+                } catch (error) {
+                    console.error('Ошибка при загрузке текущих состояний:', error);
+                }
+            }
+
+            // Функция для загрузки логов с сервера
+            async function loadLogs() {
+                try {
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                    const data = mockLogsApiResponse;
+                    
+                    if (data.success) {
+                        allLogs = data.data;
+                        renderLogs();
+                        addLogEntry('Система', 'Логи загружены', true, 'success', true);
+                    } else {
+                        throw new Error('Ошибка загрузки логов с сервера');
+                    }
+                } catch (error) {
+                    console.error('Ошибка при загрузке логов:', error);
+                    addLogEntry('Система', 'Ошибка загрузки логов', false, 'error', true);
+                } finally {
+                    loadingScreen.classList.add('hidden');
+                    mainContent.classList.remove('hidden');
+                }
+            }
+
+            // Функция для сохранения лога на сервер
+            async function saveLogToServer(logEntry) {
+                try {
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
+                    // Имитация успешного сохранения
+                    const savedLog = {
+                        ...logEntry,
+                        id: Date.now(),
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    allLogs.unshift(savedLog);
+                    
+                    return { success: true, data: savedLog };
+                } catch (error) {
+                    console.error('Ошибка при сохранении лога:', error);
+                    return { success: false, error: error.message };
+                }
+            }
+
+            // Функция для применения текущих состояний к интерфейсу
+            function applyCurrentStates(states) {
+                states.forEach(state => {
+                    const blockId = state.id;
+                    const dropdown = document.getElementById(`dropdown${blockId}`);
+                    const switchElement = document.getElementById(`switch${blockId}`);
+                    const switchLabels = switchElement.parentElement.parentElement.querySelectorAll('.switch-label');
+                    
+                    if (state.parameter) {
+                        dropdown.value = state.parameter;
+                        switchElement.disabled = false;
+                    } else {
+                        dropdown.value = "";
+                        switchElement.disabled = true;
+                    }
+                    
+                    switchElement.checked = state.status;
+                    
+                    if (state.status) {
+                        switchLabels[0].textContent = 'Вкл';
+                        switchLabels[1].textContent = 'Вкл';
+                    } else {
+                        switchLabels[0].textContent = 'Выкл';
+                        switchLabels[1].textContent = 'Выкл';
+                    }
+                    
+                    updateBlockStyle(blockId, state.status ? 'enabled' : 'disabled');
+                });
+            }
+
+            // Функция для рендеринга логов с фильтрацией
+            function renderLogs() {
+                const filterValue = logFilter.value;
+                const filteredLogs = filterValue === 'all' 
+                    ? allLogs 
+                    : allLogs.filter(log => log.blockName === filterValue);
+
+                logContent.innerHTML = '';
+
+                if (filteredLogs.length === 0) {
+                    const emptyMessage = document.createElement('div');
+                    emptyMessage.className = 'empty-log';
+                    emptyMessage.textContent = 'Нет записей для отображения';
+                    logContent.appendChild(emptyMessage);
+                    return;
+                }
+
+                filteredLogs.forEach(log => {
+                    const logEntry = createLogEntryElement(log);
+                    logContent.appendChild(logEntry);
+                });
+            }
+
+            // Функция для создания элемента лога
+            function createLogEntryElement(log) {
+                const timestamp = new Date(log.timestamp).toLocaleTimeString();
+                const statusClass = log.status ? 'enabled' : 'disabled';
+                const action = log.status ? 'включил' : 'выключил';
+                
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log-entry';
+                
+                let serverStatusHtml = '';
+                if (log.serverStatus) {
+                    const statusClass = log.serverStatus === 'success' ? 'status-success' : 'status-error';
+                    const statusText = log.serverStatus === 'success' ? 'УСПЕХ' : 'ОШИБКА';
+                    serverStatusHtml = `<span class="server-status ${statusClass}">${statusText}</span>`;
+                }
+                
+                logEntry.innerHTML = `
+                    <span class="timestamp">[${timestamp}]</span>
+                    <span class="log-message">
+                        <strong>${log.blockName}</strong> - 
+                        <span class="${statusClass}">${log.parameter}</span> ${action}
+                        ${serverStatusHtml}
+                    </span>
+                `;
+                
+                return logEntry;
+            }
+
+            // Функция для обновления стиля блока
+            function updateBlockStyle(blockId, status) {
+                const block = document.getElementById(`block${blockId}`);
+                const statusIndicator = block.querySelector('.status-indicator');
+                
+                block.classList.remove('enabled', 'disabled', 'pending');
+                statusIndicator.classList.remove('enabled', 'disabled', 'pending');
+                
+                if (status === 'enabled') {
+                    block.classList.add('enabled');
+                    statusIndicator.classList.add('enabled');
+                } else if (status === 'disabled') {
+                    block.classList.add('disabled');
+                    statusIndicator.classList.add('disabled');
+                } else if (status === 'pending') {
+                    block.classList.add('pending');
+                    statusIndicator.classList.add('pending');
+                }
+            }
+
+            // Функция для добавления записи в лог
+            async function addLogEntry(blockName, parameter, status, serverStatus = null, skipSave = false) {
+                const logEntry = {
+                    blockName,
+                    parameter,
+                    status,
+                    serverStatus,
+                    timestamp: new Date().toISOString()
+                };
+
+                if (!skipSave) {
+                    const saveResult = await saveLogToServer(logEntry);
+                    if (!saveResult.success) {
+                        serverStatus = 'error';
+                    }
+                }
+
+                if (!skipSave) {
+                    allLogs.unshift({
+                        ...logEntry,
+                        id: Date.now()
+                    });
+                }
+                
+                renderLogs();
+            }
+
+            // Функция для отправки данных на сервер
+            async function sendToServer(blockId, blockName, parameter, status) {
+                const loadingOverlay = document.getElementById(`loading${blockId}`);
+                const switchElement = document.getElementById(`switch${blockId}`);
+                
+                loadingOverlay.classList.add('active');
+                switchElement.disabled = true;
+                updateBlockStyle(blockId, 'pending');
+                
+                const data = {
+                    blockName: blockName,
+                    parameter: parameter,
+                    status: status,
+                    timestamp: new Date().toISOString()
+                };
+                
+                try {
+                    const response = await fetch('https://jsonplaceholder.typicode.com/posts', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(data)
+                    });
+                    
+                    if (response.ok) {
+                        updateBlockStyle(blockId, status ? 'enabled' : 'disabled');
+                        await addLogEntry(blockName, parameter, status, 'success');
+                    } else {
+                        throw new Error(`Ошибка сервера: ${response.status}`);
+                    }
+                } catch (error) {
+                    updateBlockStyle(blockId, status ? 'disabled' : 'enabled');
+                    await addLogEntry(blockName, parameter, status, 'error');
+                    
+                    switchElement.checked = !status;
+                    const switchLabels = switchElement.parentElement.parentElement.querySelectorAll('.switch-label');
+                    switchLabels[0].textContent = !status ? 'Выкл' : 'Вкл';
+                    switchLabels[1].textContent = !status ? 'Вкл' : 'Выкл';
+                } finally {
+                    loadingOverlay.classList.remove('active');
+                    switchElement.disabled = false;
+                }
+            }
+            
+            // Обработчики событий
+            expandBtn.addEventListener('click', function() {
+                logContent.classList.toggle('expanded');
+                expandBtn.textContent = logContent.classList.contains('expanded') ? 'Свернуть' : 'Расширить';
+            });
+
+            logFilter.addEventListener('change', renderLogs);
+            
+            // Настройка всех блоков
+            for (let i = 1; i <= 6; i++) {
+                const dropdown = document.getElementById(`dropdown${i}`);
+                const switchElement = document.getElementById(`switch${i}`);
+                const switchLabels = switchElement.parentElement.parentElement.querySelectorAll('.switch-label');
+                const blockTitle = switchElement.closest('.block').querySelector('.block-title').textContent;
+                
+                dropdown.addEventListener('change', function() {
+                    if (this.value) {
+                        switchElement.disabled = false;
+                    } else {
+                        switchElement.disabled = true;
+                        switchElement.checked = false;
+                        switchLabels[0].textContent = 'Выкл';
+                        switchLabels[1].textContent = 'Вкл';
+                        updateBlockStyle(i, 'disabled');
+                    }
+                });
+                
+                switchElement.addEventListener('change', function() {
+                    const parameter = dropdown.value;
+                    const status = this.checked;
+                    
+                    if (this.checked) {
+                        switchLabels[0].textContent = 'Вкл';
+                        switchLabels[1].textContent = 'Вкл';
+                    } else {
+                        switchLabels[0].textContent = 'Выкл';
+                        switchLabels[1].textContent = 'Выкл';
+                    }
+                    
+                    sendToServer(i, blockTitle, parameter, status);
+                });
+            }
+            
+            // Загружаем данные при загрузке страницы
+            Promise.all([loadCurrentStates(), loadLogs()]).then(() => {
+                console.log('Все данные загружены');
+            });
+        });
+    </script>
+</body>
+</html>
