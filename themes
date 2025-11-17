@@ -1,0 +1,25 @@
+- [ ] взять из хакатона
+- [ ] VLSM Calculator
+     Design efficient subnets with Variable.
+     Length Subnet Masking for optimal address        space utilization.
+
+- [ ] Supernet Calculator
+      Aggregate multiple networks into a single    
+       supernet for route summarization and 
+       efficient routing table management
+
+- [ ] HTTP Performance Analyzer
+      Measure HTTP request performance 
+      including DNS resolution, TCP connection, 
+      TLS handshake, and response times. Get 
+      detailed timing breakdowns and 
+      performance insights.
+
+- [ ] MAC Address Converter & OUI Lookup
+Convert MAC addresses between different formats and identify the manufacturer using the Organizationally Unique Identifier (OUI)
+
+
+- [ ] DHCP Option 43 Generator
+Generate vendor-specific DHCP Option 43 values for wireless controller auto-discovery. Supports Cisco, Aruba, Ruckus, UniFi, and more with multiple output formats.
+
+https://github.com/Lissy93/networking-toolbox?ysclid=mhzbbppr68259373309
